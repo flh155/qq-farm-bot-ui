@@ -111,31 +111,33 @@ function startAdminServer(dataProvider) {
 
     // 登录与鉴权
     app.post('/api/login', async (req, res) => {
-        const { password } = req.body || {};
-        
+        const { password, encrypted } = req.body || {};
+            
         // 记录登录尝试
         try {
             recordLoginAttempts(req.ip);
         } catch (error) {
             return res.status(429).json({ ok: false, error: error.message });
         }
-        
-        const input = String(password || '');
+            
+        let input = String(password || '');
         const storedHash = store.getAdminPasswordHash ? store.getAdminPasswordHash() : '';
         let ok = false;
-        
+            
         if (storedHash) {
-            // 优先使用安全验证 (支持PBKDF2和SHA256)
-            ok = await verifyPassword(input, storedHash);
+            // 如果前端传输的是加密密码，直接使用；否则先进行 SHA-256 哈希
+            const passwordToVerify = encrypted ? input : await hashPassword(input);
+            // 优先使用安全验证 (支持 PBKDF2 和 SHA256)
+            ok = await verifyPassword(passwordToVerify, storedHash);
         } else {
-            // 兼容旧配置
+            // 兼容旧配置（仅用于未设置密码哈希的情况）
             ok = input === String(CONFIG.adminPassword || '');
         }
-        
+            
         if (!ok) {
             return res.status(401).json({ ok: false, error: 'Invalid password' });
         }
-        
+            
         // 登录成功
         clearLoginAttempts(req.ip);
         const token = issueToken();
@@ -144,25 +146,141 @@ function startAdminServer(dataProvider) {
     });
 
     app.use('/api', (req, res, next) => {
-        if (req.path === '/login' || req.path === '/qr/create' || req.path === '/qr/check' || req.path === '/auth/validate' || req.path === '/admin/password-auth-status') return next();
+        if (req.path === '/login' || req.path === '/qr/create' || req.path === '/qr/check' || req.path === '/auth/validate' || req.path === '/admin/password-auth-status' || req.path === '/init-password') return next();
         return authRequired(req, res, next);
+    });
+
+    app.post('/api/init-password', async (req, res) => {
+        const { password, encrypted } = req.body || {};
+        
+        // 检查是否已经设置过密码（只检查密码哈希，不检查 CONFIG.adminPassword）
+        const storedHash = store.getAdminPasswordHash ? store.getAdminPasswordHash() : '';
+        const hasExistingPassword = !!storedHash;
+        
+        if (hasExistingPassword) {
+            return res.status(400).json({ ok: false, error: '管理员密码已存在，无需重复初始化' });
+        }
+        
+        // 密码强度检查（后端二次验证）
+        let input = String(password || '');
+        if (!input) {
+            return res.status(400).json({ ok: false, error: '密码不能为空' });
+        }
+        
+        // 如果是加密传输的密码，先进行 SHA-256 解密验证
+        // 注意：这里不是解密，而是对加密后的哈希值再次验证长度等
+        if (encrypted) {
+            // 前端传来的已经是 SHA-256 哈希（64 位十六进制字符串）
+            // 我们直接将其作为“原始密码”进行 PBKDF2 加密存储
+            if (input.length !== 64) {
+                return res.status(400).json({ ok: false, error: '加密密码格式不正确' });
+            }
+            // 验证是否只包含十六进制字符
+            if (!/^[a-f0-9]+$/.test(input)) {
+                return res.status(400).json({ ok: false, error: '加密密码格式不正确' });
+            }
+        } else {
+            // 兼容未加密的明文密码（仅用于测试或旧版本）
+            // 检查是否包含空格
+            if (/\s/.test(input)) {
+                return res.status(400).json({ ok: false, error: '密码不能包含空格' });
+            }
+            
+            // 检查是否只允许：字母、数字、特定符号
+            const validPattern = /^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?]+$/;
+            if (!validPattern.test(input)) {
+                return res.status(400).json({ ok: false, error: '密码只能包含字母、数字和特定符号（!@#$%^&*()_+-=[]{}|;:,.<>?）' });
+            }
+            
+            if (input.length < 8) {
+                return res.status(400).json({ ok: false, error: '密码长度至少为 8 位' });
+            }
+            
+            if (input.length > 32) {
+                return res.status(400).json({ ok: false, error: '密码长度不能超过 32 位' });
+            }
+            
+            // 检查密码复杂度
+            const hasNumber = /\d/.test(input);
+            const hasLetter = /[a-zA-Z]/.test(input);
+            const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(input);
+            const conditionsMet = [hasNumber, hasLetter, hasSpecialChar].filter(Boolean).length;
+            
+            if (conditionsMet < 2) {
+                return res.status(400).json({ ok: false, error: '密码必须包含数字、字母、特殊字符中的至少两种' });
+            }
+            
+            // 检查常见弱密码
+            const weakPatterns = [
+                /^(123|abc|password|admin|qwerty|iloveyou|123456|12345678|123456789)(\d*)$/i,
+                /^(\d{6,})$/, // 纯数字
+                /^([a-zA-Z]{6,})$/, // 纯字母
+                /^(.)\1{5,}$/, // 重复字符
+            ];
+            
+            for (const pattern of weakPatterns) {
+                if (pattern.test(input)) {
+                    return res.status(400).json({ ok: false, error: '请不要使用过于简单的密码' });
+                }
+            }
+        }
+        
+        try {
+            // 使用 PBKDF2 加密密码
+            // 如果前端已加密，这里的 input 是 SHA-256 哈希；否则是明文密码
+            const nextHash = await hashPassword(input);
+            
+            // 保存密码哈希
+            if (store.setAdminPasswordHash) {
+                store.setAdminPasswordHash(nextHash);
+            }
+            
+            adminLogger.info('管理员密码初始化成功');
+            
+            // 生成 token 并自动登录
+            const token = issueToken();
+            tokens.add(token);
+            
+            res.json({ ok: true, data: { token } });
+        } catch (error) {
+            adminLogger.error('初始化密码失败', { error: error.message });
+            res.status(500).json({ ok: false, error: '初始化失败，请稍后重试' });
+        }
     });
 
     app.post('/api/admin/change-password', async (req, res) => {
         const body = req.body || {};
         const oldPassword = String(body.oldPassword || '');
         const newPassword = String(body.newPassword || '');
+        const encrypted = Boolean(body.encrypted);
+        
         if (newPassword.length < 4) {
             return res.status(400).json({ ok: false, error: '新密码长度至少为 4 位' });
         }
         const storedHash = store.getAdminPasswordHash ? store.getAdminPasswordHash() : '';
+        
+        // 验证旧密码
+        let oldPasswordToVerify = oldPassword;
+        if (!encrypted) {
+            // 如果是明文，先进行 SHA-256 哈希
+            oldPasswordToVerify = await hashPassword(oldPassword);
+        }
+        
         const ok = storedHash
-            ? await verifyPassword(oldPassword, storedHash)
+            ? await verifyPassword(oldPasswordToVerify, storedHash)
             : oldPassword === String(CONFIG.adminPassword || '');
         if (!ok) {
             return res.status(400).json({ ok: false, error: '原密码错误' });
         }
-        const nextHash = await hashPassword(newPassword);
+        
+        // 加密新密码
+        let newPasswordToStore = newPassword;
+        if (!encrypted) {
+            // 如果是明文，先进行 SHA-256 哈希
+            newPasswordToStore = await hashPassword(newPassword);
+        }
+        
+        const nextHash = await hashPassword(newPasswordToStore);
         if (store.setAdminPasswordHash) {
             store.setAdminPasswordHash(nextHash);
         }
@@ -201,15 +319,24 @@ function startAdminServer(dataProvider) {
     app.get('/api/auth/validate', (req, res) => {
         // 如果禁用了密码认证，直接返回有效
         if (store.getDisablePasswordAuth && store.getDisablePasswordAuth()) {
-            return res.json({ ok: true, data: { valid: true, passwordDisabled: true } });
+            return res.json({ ok: true, data: { valid: true, passwordDisabled: true, needsInit: false } });
         }
         
         const token = String(req.headers['x-admin-token'] || '').trim();
+        const storedHash = store.getAdminPasswordHash ? store.getAdminPasswordHash() : '';
+        
+        // 检查是否需要初始化密码（只检查是否有密码哈希，不检查 CONFIG.adminPassword）
+        const needsInit = !storedHash;
+        
+        if (needsInit) {
+            return res.json({ ok: true, data: { valid: false, passwordDisabled: false, needsInit: true } });
+        }
+        
         const valid = !!token && tokens.has(token);
         if (!valid) {
-            return res.status(401).json({ ok: false, data: { valid: false }, error: 'Unauthorized' });
+            return res.status(401).json({ ok: false, data: { valid: false, needsInit: false }, error: 'Unauthorized' });
         }
-        res.json({ ok: true, data: { valid: true, passwordDisabled: false } });
+        res.json({ ok: true, data: { valid: true, passwordDisabled: false, needsInit: false } });
     });
 
     // API: 调度任务快照（用于调度收敛排查）

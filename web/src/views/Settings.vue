@@ -854,8 +854,38 @@ async function handleChangePassword() {
     showAlert('两次密码输入不一致', 'danger')
     return
   }
-  if (passwordForm.value.new.length < 4) {
-    showAlert('密码长度至少4位', 'danger')
+  
+  // 检查新密码是否包含空格
+  if (/\s/.test(passwordForm.value.new)) {
+    showAlert('密码不能包含空格', 'danger')
+    return
+  }
+  
+  // 检查是否只允许：字母、数字、特定符号
+  const validPattern = /^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?]+$/.test(passwordForm.value.new)
+  if (!validPattern) {
+    showAlert('密码只能包含字母、数字和特定符号（!@#$%^&*()_+-=[]{}|;:,.<>?）', 'danger')
+    return
+  }
+  
+  if (passwordForm.value.new.length < 8) {
+    showAlert('密码长度至少 8 位', 'danger')
+    return
+  }
+  
+  if (passwordForm.value.new.length > 32) {
+    showAlert('密码长度不能超过 32 位', 'danger')
+    return
+  }
+  
+  // 检查密码复杂度
+  const hasNumber = /\d/.test(passwordForm.value.new)
+  const hasLetter = /[a-zA-Z]/.test(passwordForm.value.new)
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(passwordForm.value.new)
+  const conditionsMet = [hasNumber, hasLetter, hasSpecialChar].filter(Boolean).length
+  
+  if (conditionsMet < 2) {
+    showAlert('密码必须包含数字、字母、特殊字符中的至少两种', 'danger')
     return
   }
 
@@ -868,8 +898,30 @@ async function handleChangePassword() {
       passwordForm.value = { old: '', new: '', confirm: '' }
     }
     else {
-      showAlert(`修改失败: ${res.error || '未知错误'}`, 'danger')
+      showAlert(`修改失败：${res.error || '未知错误'}`, 'danger')
     }
+  }
+  catch (error: any) {
+    // 处理 HTTP 错误（如 400、500 等）
+    let errorMsg = '修改失败：'
+    
+    if (error.response) {
+      // 服务器返回了错误响应
+      const backendError = error.response.data?.error || error.response.data?.message
+      if (backendError) {
+        errorMsg += backendError
+      } else {
+        errorMsg += `服务器错误 (${error.response.status})`
+      }
+    } else if (error.request) {
+      // 请求已发送但没有收到响应
+      errorMsg += '网络错误，无法连接到服务器'
+    } else {
+      // 其他错误
+      errorMsg += error.message || '未知错误'
+    }
+    
+    showAlert(errorMsg, 'danger')
   }
   finally {
     passwordSaving.value = false
@@ -1463,7 +1515,7 @@ async function handleTestOffline() {
               v-model="passwordForm.new"
               label="新密码"
               type="password"
-              placeholder="至少 4 位"
+              placeholder="8-32 位，包含字母数字符号"
             />
             <BaseInput
               v-model="passwordForm.confirm"
@@ -1472,10 +1524,10 @@ async function handleTestOffline() {
               placeholder="再次输入新密码"
             />
           </div>
-
+          
           <div class="flex items-center justify-between pt-1">
             <p class="text-xs text-gray-500">
-              建议修改默认密码 (admin)
+              建议使用字母、数字和特殊符号的组合，长度 8-32 位
             </p>
             <BaseButton
               variant="primary"
