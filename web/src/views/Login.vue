@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import api from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
+import { encryptPassword } from '@/utils/crypto'
 
 const router = useRouter()
 const password = ref('')
@@ -16,7 +17,9 @@ async function handleLogin() {
   loading.value = true
   error.value = ''
   try {
-    const res = await api.post('/api/login', { password: password.value })
+    // 对密码进行加密后再传输
+    const encryptedPassword = await encryptPassword(password.value)
+    const res = await api.post('/api/login', { password: encryptedPassword, encrypted: true })
     if (res.data.ok) {
       token.value = res.data.data.token
       router.push('/')
@@ -26,7 +29,15 @@ async function handleLogin() {
     }
   }
   catch (e: any) {
-    error.value = e.response?.data?.error || e.message || '登录异常'
+    // 处理 HTTP 错误（如 400、500 等）
+    if (e.response) {
+      const backendError = e.response.data?.error || e.response.data?.message
+      error.value = backendError || `服务器错误 (${e.response.status})`
+    } else if (e.request) {
+      error.value = '网络错误，无法连接到服务器'
+    } else {
+      error.value = e.message || '登录异常'
+    }
   }
   finally {
     loading.value = false

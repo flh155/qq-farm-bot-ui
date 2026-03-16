@@ -20,14 +20,19 @@ async function ensureTokenValid() {
     })
 
     if (authCheckResponse.data && authCheckResponse.data.ok) {
-      const { valid, passwordDisabled } = authCheckResponse.data.data
+      const { valid, passwordDisabled, needsInit } = authCheckResponse.data.data
 
-      // 如果禁用了密码认证，直接返回true
+      // 如果需要初始化密码，返回特殊标记
+      if (needsInit) {
+        return 'needsInit'
+      }
+
+      // 如果禁用了密码认证，直接返回 true
       if (passwordDisabled) {
         return true
       }
 
-      // 如果启用了密码认证，检查token有效性
+      // 如果启用了密码认证，检查 token 有效性
       if (valid && token) {
         return true
       }
@@ -57,18 +62,42 @@ const router = createRouter({
       name: 'login',
       component: () => import('@/views/Login.vue'),
     },
+    {
+      path: '/init-password',
+      name: 'init-password',
+      component: () => import('@/views/InitPassword.vue'),
+    },
   ],
 })
 
 router.beforeEach(async (to, _from) => {
   NProgress.start()
 
-  // 首先检查是否禁用了密码认证
+  // 首先检查认证状态
   const authValid = await ensureTokenValid()
 
+  // 如果需要初始化密码
+  if (authValid === 'needsInit') {
+    // 只允许访问初始化页面，其他所有页面都重定向到初始化页面
+    if (to.name !== 'init-password') {
+      return { name: 'init-password' }
+    }
+    return true
+  }
+
+  // 如果在初始化页面但不需要初始化了（已初始化或禁用密码），跳转到首页
+  if (to.name === 'init-password') {
+    if (authValid === true) {
+      return { name: 'dashboard' }
+    }
+    // 如果还需要初始化，允许访问（这个情况理论上不会发生，因为上面已经处理了）
+    return true
+  }
+
+  // 登录页面的特殊处理
   if (to.name === 'login') {
     // 如果已经通过认证（包括禁用密码认证的情况），跳转到首页
-    if (authValid) {
+    if (authValid === true) {
       return { name: 'dashboard' }
     }
     // 否则显示登录页
@@ -77,7 +106,7 @@ router.beforeEach(async (to, _from) => {
 
   // 对于其他页面，检查认证状态
   if (!authValid) {
-    // 如果认证失败，清除token并跳转到登录页
+    // 如果认证失败，清除 token 并跳转到登录页
     adminToken.value = ''
     return { name: 'login' }
   }

@@ -290,7 +290,17 @@ export const useSettingStore = defineStore('setting', () => {
   async function changeAdminPassword(oldPassword: string, newPassword: string) {
     loading.value = true
     try {
-      const res = await api.post('/api/admin/change-password', { oldPassword, newPassword })
+      // 对密码进行加密后再传输
+      const { encryptPassword } = await import('@/utils/crypto')
+      const [encryptedOld, encryptedNew] = await Promise.all([
+        encryptPassword(oldPassword),
+        encryptPassword(newPassword)
+      ])
+      const res = await api.post('/api/admin/change-password', { 
+        oldPassword: encryptedOld, 
+        newPassword: encryptedNew,
+        encrypted: true 
+      })
       return res.data
     }
     finally {
