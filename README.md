@@ -26,8 +26,6 @@ security-enhancement-pr分支：用于提交PR到原项目的分支，与main分
 
 基于 Node.js 的 QQ 农场自动化工具，支持多账号管理、Web 控制面板、实时日志与数据分析。
 
-新 qq农场游戏交流群：1077372084
-
 [Discord](https://discord.gg/zTEhed5qpc)
 
 ## 技术栈
