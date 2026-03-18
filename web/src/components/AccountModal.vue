@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useIntervalFn } from '@vueuse/core'
 import { computed, reactive, ref, watch } from 'vue'
 import api from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -14,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits(['close', 'saved'])
 
-const activeTab = ref('qr') // qr, manual
+const activeTab = ref('manual') // qr, manual - 默认改为手动填码
 const loading = ref(false)
 const qrData = ref<{ image?: string, code: string, qrcode?: string, url?: string } | null>(null)
 const qrStatus = ref('')
@@ -26,110 +25,12 @@ const form = reactive({
   platform: 'qq',
 })
 
-const { pause: stopQRCheck, resume: startQRCheck } = useIntervalFn(async () => {
-  if (!qrData.value)
-    return
-  try {
-    const res = await api.post('/api/qr/check', { code: qrData.value.code })
-    if (res.data.ok) {
-      const status = res.data.data.status
-      if (status === 'OK') {
-        // Login success
-        stopQRCheck()
-        qrStatus.value = '登录成功'
-        // Auto fill form and submit
-        const { uin, code: authCode, nickname } = res.data.data
-
-        // Use name from form if provided, otherwise default
-        let accName = form.name.trim()
-        if (!accName) {
-          // 优先使用 nickname，其次使用 uin
-          accName = nickname || (uin ? String(uin) : '扫码账号')
-        }
-
-        // We need to add account with this data
-        await addAccount({
-          id: props.editData?.id,
-          uin,
-          code: authCode,
-          loginType: 'qr',
-          name: props.editData ? (props.editData.name || accName) : accName,
-          platform: 'qq',
-        })
-      }
-      else if (status === 'Used') {
-        qrStatus.value = '二维码已失效' // Consistent text
-        stopQRCheck()
-      }
-      else if (status === 'Wait') {
-        qrStatus.value = '等待扫码'
-      }
-      else {
-        qrStatus.value = `错误: ${res.data.data.error}`
-      }
-    }
-  }
-  catch (e) {
-    console.error(e)
-  }
-}, 1000, { immediate: false })
-
-// QR Code Logic
-async function loadQRCode() {
-  if (activeTab.value !== 'qr')
-    return
-  loading.value = true
-  qrStatus.value = '正在获取二维码'
-  errorMessage.value = ''
-  try {
-    const res = await api.post('/api/qr/create')
-    if (res.data.ok) {
-      qrData.value = res.data.data
-      qrStatus.value = '请使用手机QQ扫码'
-      startQRCheck()
-    }
-    else {
-      qrStatus.value = `获取失败: ${res.data.error}`
-    }
-  }
-  catch (e) {
-    qrStatus.value = '获取失败'
-    console.error(e)
-  }
-  finally {
-    loading.value = false
-  }
-}
-
-const isMobile = computed(() => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent))
 const manualNameHint = computed(() => form.platform === 'qq'
   ? '留空备注名时，会在保存后自动同步游戏名称。'
   : '微信小程序保留原逻辑，留空时将使用默认备注名。')
 const manualNamePlaceholder = computed(() => form.platform === 'qq'
   ? '留空自动同步游戏名称'
   : '留空默认账号名')
-
-function openQRCodeLoginUrl() {
-  if (!qrData.value?.url)
-    return
-
-  const url = qrData.value.url
-  if (!isMobile.value) {
-    window.open(url, '_blank')
-    return
-  }
-
-  // Mobile Deep Link logic
-  try {
-    const b64 = btoa(decodeURIComponent(encodeURIComponent(url)))
-    const qqDeepLink = `mqqapi://forward/url?url_prefix=${encodeURIComponent(b64)}&version=1&src_type=web`
-    window.location.href = qqDeepLink
-  }
-  catch (e) {
-    console.error('打开二维码登录链接失败:', e)
-    window.location.href = url
-  }
-}
 
 async function addAccount(data: any) {
   loading.value = true
@@ -141,11 +42,11 @@ async function addAccount(data: any) {
       close()
     }
     else {
-      errorMessage.value = `保存失败: ${res.data.error}`
+      errorMessage.value = `保存失败：${res.data.error}`
     }
   }
   catch (e: any) {
-    errorMessage.value = `保存失败: ${e.response?.data?.error || e.message}`
+    errorMessage.value = `保存失败：${e.response?.data?.error || e.message}`
   }
   finally {
     loading.value = false
@@ -155,7 +56,7 @@ async function addAccount(data: any) {
 async function submitManual() {
   errorMessage.value = ''
   if (!form.code) {
-    errorMessage.value = '请输入Code 或 进行扫码'
+    errorMessage.value = '请输入 Code 或 进行扫码'
     return
   }
 
@@ -212,7 +113,6 @@ async function submitManual() {
 }
 
 function close() {
-  stopQRCheck()
   emit('close')
 }
 
@@ -220,25 +120,22 @@ watch(() => props.show, (newVal) => {
   if (newVal) {
     errorMessage.value = ''
     if (props.editData) {
-      // Edit mode: Default to QR refresh, load code
-      activeTab.value = 'qr'
+      // Edit mode: Default to manual fill
+      activeTab.value = 'manual'
       form.name = props.editData.name
       form.code = props.editData.code || ''
       form.platform = props.editData.platform || 'qq'
-      loadQRCode()
     }
     else {
-      // Add mode: Default to QR
-      activeTab.value = 'qr'
+      // Add mode: Default to manual fill
+      activeTab.value = 'manual'
       form.name = ''
       form.code = ''
       form.platform = 'qq'
-      loadQRCode()
     }
   }
   else {
     // Reset when closed
-    stopQRCheck()
     qrData.value = null
     qrStatus.value = ''
   }
@@ -249,7 +146,7 @@ watch(() => props.show, (newVal) => {
   <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
     <div class="max-w-md w-full overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-800">
       <div class="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
-        <h3 class="text-lg font-semibold">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
           {{ editData ? '编辑账号' : '添加账号' }}
         </h3>
         <BaseButton variant="ghost" class="!p-1" @click="close">
@@ -257,23 +154,36 @@ watch(() => props.show, (newVal) => {
         </BaseButton>
       </div>
 
-      <div class="p-4">
+      <div class="p-4 text-gray-900 dark:text-white">
+        <!-- 停用提示 -->
+        <div class="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700">
+          <div class="flex items-start gap-2">
+            <div class="i-carbon-warning text-lg flex-shrink-0 mt-0.5" />
+            <div>
+              <p class="font-medium mb-1">扫码功能暂时停用</p>
+              <p class="text-xs opacity-80">请使用手动填码方式添加账号。</p>
+            </div>
+          </div>
+        </div>
+
         <div v-if="errorMessage" class="mb-4 rounded bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
           {{ errorMessage }}
         </div>
         <!-- Tabs -->
         <div class="mb-4 flex border-b border-gray-200 dark:border-gray-700">
           <button
-            class="flex-1 py-2 text-center font-medium"
-            :class="activeTab === 'qr' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'"
-            @click="activeTab = 'qr'; loadQRCode()"
+            class="flex-1 py-2 text-center font-medium opacity-50 cursor-not-allowed"
+            disabled
           >
-            {{ editData ? '扫码更新' : '扫码登录' }}
+            <span class="text-gray-500 dark:text-gray-400">
+              {{ editData ? '扫码更新' : '扫码登录' }}
+              <span class="ml-1 text-xs">(停用)</span>
+            </span>
           </button>
           <button
             class="flex-1 py-2 text-center font-medium"
-            :class="activeTab === 'manual' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'"
-            @click="activeTab = 'manual'; stopQRCheck()"
+            :class="activeTab === 'manual' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-gray-400'"
+            @click="activeTab = 'manual'"
           >
             手动填码
           </button>
@@ -283,32 +193,34 @@ watch(() => props.show, (newVal) => {
         <div v-if="activeTab === 'qr'" class="flex flex-col items-center justify-center py-4 space-y-4">
           <div class="w-full text-center">
             <p class="text-sm text-gray-500 dark:text-gray-400">
-              扫码默认使用QQ昵称
+              扫码默认使用 QQ 昵称
             </p>
           </div>
 
-          <div v-if="qrData && (qrData.image || qrData.qrcode)" class="border rounded bg-white p-2">
-            <img :src="qrData.image ? (qrData.image.startsWith('data:') ? qrData.image : `data:image/png;base64,${qrData.image}`) : qrData.qrcode" class="h-48 w-48">
+          <div class="border rounded bg-white p-2 opacity-50 dark:bg-gray-700">
+            <div class="h-48 w-48 flex items-center justify-center text-gray-400 dark:text-gray-500">
+              <div class="i-carbon-warning text-4xl" />
+            </div>
           </div>
-          <div v-else class="h-48 w-48 flex items-center justify-center rounded bg-gray-100 text-gray-400 dark:bg-gray-700">
-            <div v-if="loading" i-svg-spinners-90-ring-with-bg class="text-3xl" />
-            <span v-else>二维码已过期</span>
-          </div>
-          <p class="text-sm text-gray-600 dark:text-gray-400">
-            {{ qrStatus }}
+          <p class="text-sm text-amber-600 dark:text-amber-400 font-medium">
+            此功能已停用
           </p>
           <div class="flex gap-2">
-            <BaseButton variant="text" size="sm" @click="loadQRCode">
+            <BaseButton 
+              variant="text" 
+              size="sm"
+              disabled
+              class="opacity-50 cursor-not-allowed"
+            >
               刷新二维码
             </BaseButton>
             <BaseButton
-              v-if="qrData?.url"
               variant="text"
               size="sm"
-              class="text-blue-600 md:hidden"
-              @click="openQRCodeLoginUrl"
+              class="text-blue-600 md:hidden opacity-50 cursor-not-allowed dark:text-blue-400"
+              disabled
             >
-              跳转QQ登录
+              跳转 QQ 登录
             </BaseButton>
           </div>
         </div>
@@ -337,7 +249,7 @@ watch(() => props.show, (newVal) => {
             v-model="form.platform"
             label="平台"
             :options="[
-              { label: 'QQ小程序', value: 'qq' },
+              { label: 'QQ 小程序', value: 'qq' },
               { label: '微信小程序', value: 'wx' },
             ]"
           />

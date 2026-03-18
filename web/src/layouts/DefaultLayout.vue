@@ -22,7 +22,7 @@ watch(
 </script>
 
 <template>
-  <div class="w-screen flex overflow-hidden bg-gray-50 dark:bg-gray-900" style="height: 100dvh;">
+  <div class="w-screen flex overflow-hidden bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white" style="height: 100dvh;">
     <!-- Mobile Sidebar Overlay -->
     <div
       v-if="sidebarOpen"
@@ -35,9 +35,9 @@ watch(
     <main class="relative h-full min-w-0 flex flex-1 flex-col overflow-hidden">
       <!-- Top Bar (Mobile/Tablet only or for additional actions) -->
       <header class="h-16 flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-6 lg:hidden dark:border-gray-700/50 dark:bg-gray-800">
-        <div class="flex items-center gap-2 text-lg font-bold">
+        <div class="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
           <div class="i-carbon-sprout text-green-500" />
-          <span>QQ农场智能助手</span>
+          <span>QQ 农场智能助手</span>
         </div>
         <button
           class="flex items-center justify-center rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
@@ -49,7 +49,7 @@ watch(
 
       <!-- Main Content Area -->
       <div class="flex flex-1 flex-col overflow-hidden">
-        <div ref="contentScrollRef" class="custom-scrollbar flex flex-1 flex-col overflow-y-auto p-2 md:p-6 sm:p-4">
+        <div ref="contentScrollRef" class="custom-scrollbar flex flex-1 flex-col overflow-y-auto p-2 md:p-6 sm:p-4 text-gray-900 dark:text-white">
           <RouterView v-slot="{ Component, route: currentRoute }">
             <Transition name="slide-fade" mode="out-in">
               <component :is="Component" :key="currentRoute.path" />
