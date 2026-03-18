@@ -26,7 +26,8 @@ const {
     verifyPassword,
     rateLimitMiddleware,
     recordLoginAttempts,
-    clearLoginAttempts
+    clearLoginAttempts,
+    globalTokenManager,
 } = require('../services/security');
 
 const hashPassword = (pwd) => secureHash(pwd); // 兼容旧接口
@@ -68,9 +69,13 @@ function startAdminServer(dataProvider) {
     app = express();
     app.use(express.json());
 
-    const tokens = new Set();
+    //const tokens = new Set();
+    //const issueToken = () => crypto.randomBytes(24).toString('hex');
+    const issueToken = () => {
+        const tokenData = globalTokenManager.createToken();
+        return tokenData.token;
+    };
 
-    const issueToken = () => crypto.randomBytes(24).toString('hex');
     const authRequired = (req, res, next) => {
         // 检查是否禁用了密码认证
         if (store.getDisablePasswordAuth && store.getDisablePasswordAuth()) {
@@ -78,10 +83,23 @@ function startAdminServer(dataProvider) {
         }
         
         const token = req.headers['x-admin-token'];
-        if (!token || !tokens.has(token)) {
-            return res.status(401).json({ ok: false, error: 'Unauthorized' });
+        if (!token) {
+            return res.status(401).json({ ok: false, error: 'Unauthorized', reason: 'TOKEN_MISSING' });
         }
+        
+        const verification = globalTokenManager.verifyToken(token);
+        if (!verification.valid) {
+            return res.status(401).json({ 
+                ok: false, 
+                error: 'Unauthorized', 
+                reason: verification.reason,
+                expiresAt: verification.expiresAt
+            });
+        }
+
         req.adminToken = token;
+        req.tokenExpiresAt = verification.expiresAt;
+        req.tokenNeedsRefresh = verification.needsRefresh;
         next();
     };
 
@@ -140,9 +158,11 @@ function startAdminServer(dataProvider) {
             
         // 登录成功
         clearLoginAttempts(req.ip);
-        const token = issueToken();
-        tokens.add(token);
-        res.json({ ok: true, data: { token } });
+        const tokenData = globalTokenManager.createToken();
+        const token = tokenData.token;
+        // const token = issueToken();
+        // tokens.add(token);
+        res.json({ ok: true, data: { token, expiresAt: tokenData.expiresAt, createAt: tokenData.createdAt } });
     });
 
     app.use('/api', (req, res, next) => {
@@ -238,10 +258,12 @@ function startAdminServer(dataProvider) {
             adminLogger.info('管理员密码初始化成功');
             
             // 生成 token 并自动登录
-            const token = issueToken();
-            tokens.add(token);
+            const tokenData = globalTokenManager.createToken();
+            const token = tokenData.token;
+            // const token = issueToken();
+            // tokens.add(token);
             
-            res.json({ ok: true, data: { token } });
+            res.json({ ok: true, data: { token, expiresAt: tokenData.expiresAt, createAt: tokenData.createdAt } });
         } catch (error) {
             adminLogger.error('初始化密码失败', { error: error.message });
             res.status(500).json({ ok: false, error: '初始化失败，请稍后重试' });
@@ -331,13 +353,64 @@ function startAdminServer(dataProvider) {
         if (needsInit) {
             return res.json({ ok: true, data: { valid: false, passwordDisabled: false, needsInit: true } });
         }
-        
-        const valid = !!token && tokens.has(token);
-        if (!valid) {
-            return res.status(401).json({ ok: false, data: { valid: false, needsInit: false }, error: 'Unauthorized' });
+
+        const verification = globalTokenManager.verifyToken(token); // Updated: 使用新的验证
+        if (!verification.valid) {
+            return res.status(401).json({ 
+                ok: false, 
+                data: { 
+                    valid: false, 
+                    needsInit: false,
+                    reason: verification.reason
+                }, 
+                error: 'Unauthorized' 
+            });
         }
-        res.json({ ok: true, data: { valid: true, passwordDisabled: false, needsInit: false } });
+
+        // const valid = !!token && tokens.has(token);
+        // if (!valid) {
+        //     return res.status(401).json({ ok: false, data: { valid: false, needsInit: false }, error: 'Unauthorized' });
+        // }
+
+
+        res.json({ ok: true, data: { valid: true, passwordDisabled: false, needsInit: false, needsRefresh: verification.needsRefresh, expiresAt: verification.expiresAt } });
     });
+
+    // API: Token 刷新接口
+    app.post('/api/token/refresh', (req, res) => {
+        const token = req.adminToken;
+        if (!token) {
+            return res.status(401).json({ ok: false, error: 'Unauthorized', reason: 'TOKEN_MISSING' });
+        }
+        
+        const refreshResult = globalTokenManager.refreshToken(token);
+        if (!refreshResult) {
+            return res.status(401).json({ ok: false, error: 'Token invalid', reason: 'TOKEN_NOT_FOUND' });
+        }
+        
+        res.json({
+            ok: true,
+            data: refreshResult
+        });
+    });
+
+    // API: 获取当前活跃 token 列表（管理员功能）
+    app.get('/api/admin/tokens', (req, res) => {
+        try {
+            const tokens = globalTokenManager.getAllTokens();
+            res.json({
+                ok: true,
+                data: {
+                    tokens,
+                    count: tokens.length,
+                    expirationMs: SECURITY_CONFIG.tokenExpirationMs,
+                }
+            });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
 
     // API: 调度任务快照（用于调度收敛排查）
     app.get('/api/scheduler', async (req, res) => {
@@ -356,7 +429,8 @@ function startAdminServer(dataProvider) {
     app.post('/api/logout', (req, res) => {
         const token = req.adminToken;
         if (token) {
-            tokens.delete(token);
+            // tokens.delete(token);
+            globalTokenManager.deleteToken(token); // Updated: 使用新的 token 管理器
             if (io) {
                 for (const socket of io.sockets.sockets.values()) {
                     if (String(socket.data.adminToken || '') === String(token)) {
@@ -1204,10 +1278,19 @@ function startAdminServer(dataProvider) {
             ? String(socket.handshake.headers['x-admin-token'])
             : '';
         const token = authToken || headerToken;
-        if (!token || !tokens.has(token)) {
-            return next(new Error('Unauthorized'));
+        
+        if (!token) {
+            return next(new Error('Unauthorized: TOKEN_MISSING'));
         }
+        
+        // 使用 globalTokenManager 验证 token
+        const verification = globalTokenManager.verifyToken(token);
+        if (!verification.valid) {
+            return next(new Error(`Unauthorized: ${verification.reason}`));
+        }
+
         socket.data.adminToken = token;
+        socket.data.tokenExpiresAt = verification.expiresAt;
         return next();
     });
 

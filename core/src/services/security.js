@@ -15,8 +15,152 @@ const SECURITY_CONFIG = {
     maxPasswordLength: 64,
     enablePasswordStrengthCheck: true,
     maxLoginAttempts: 5,      // 最大登录尝试次数
-    lockoutDuration: 300000,  // 锁定时长(ms) 5分钟
+    lockoutDuration: 300000,  // 锁定时长 (ms) 5 分钟
+    tokenExpirationMs: 30 * 60 * 1000, // Token 过期时间 30 分钟
+    tokenRefreshThresholdMs: 5 * 60 * 1000, // 刷新阈值 5 分钟（过期前 5 分钟内可刷新）
 };
+
+// Token 存储与管理
+class TokenManager {
+    constructor() {
+        this.tokens = new Map(); // token -> { createdAt, expiresAt, lastUsedAt }
+        this.cleanupInterval = null;
+        this.startCleanup();
+    }
+
+    /**
+     * 生成并存储新 token
+     */
+    createToken() {
+        const now = Date.now();
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenData = {
+            createdAt: now,
+            expiresAt: now + SECURITY_CONFIG.tokenExpirationMs,
+            lastUsedAt: now, // 记录最后使用时间
+        };
+        this.tokens.set(token, tokenData);
+        return {
+            token,
+            expiresAt: tokenData.expiresAt,
+            createdAt: tokenData.createdAt,
+        };
+    }
+
+    /**
+     * 验证 token 是否有效
+     */
+    verifyToken(token) {
+        if (!token) return { valid: false, reason: 'TOKEN_MISSING' };
+        
+        const tokenData = this.tokens.get(token);
+        if (!tokenData) return { valid: false, reason: 'TOKEN_NOT_FOUND' };
+        
+        const now = Date.now();
+        
+        // 检查是否过期
+        if (now > tokenData.expiresAt) {
+            this.tokens.delete(token);
+            return { valid: false, reason: 'TOKEN_EXPIRED' };
+        }
+        
+        // 更新最后使用时间
+        tokenData.lastUsedAt = now;
+        this.tokens.set(token, tokenData);
+        
+        return { 
+            valid: true, 
+            expiresAt: tokenData.expiresAt,
+            needsRefresh: (tokenData.expiresAt - now) < SECURITY_CONFIG.tokenRefreshThresholdMs
+        };
+    }
+
+    /**
+     * 刷新 token（延长过期时间）
+     */
+    refreshToken(token) {
+        const tokenData = this.tokens.get(token);
+        if (!tokenData) return null;
+        
+        const now = Date.now();
+        // 只有在过期前 5 分钟内才能刷新
+        if ((tokenData.expiresAt - now) >= SECURITY_CONFIG.tokenRefreshThresholdMs) {
+            return {
+                token,
+                expiresAt: tokenData.expiresAt,
+                message: '无需刷新'
+            };
+        }
+        
+        // 延长过期时间（从当前时间开始重新计算 30 分钟）
+        tokenData.expiresAt = now + SECURITY_CONFIG.tokenExpirationMs;
+        tokenData.lastUsedAt = now;
+        this.tokens.set(token, tokenData);
+        
+        return {
+            token,
+            expiresAt: tokenData.expiresAt,
+            message: '刷新成功'
+        };
+    }
+
+    /**
+     * 删除 token（登出）
+     */
+    deleteToken(token) {
+        return this.tokens.delete(token);
+    }
+
+    /**
+     * 获取 token 数量统计
+     */
+    getTokenCount() {
+        return this.tokens.size;
+    }
+
+    /**
+     * 启动定期清理任务
+     */
+    startCleanup() {
+        // 每 10 分钟清理一次过期 token
+        this.cleanupInterval = setInterval(() => {
+            const now = Date.now();
+            for (const [token, data] of this.tokens.entries()) {
+                if (now > data.expiresAt) {
+                    this.tokens.delete(token);
+                }
+            }
+        }, 10 * 60 * 1000);
+
+        // 防止内存泄漏，进程退出时清除定时器
+        process.on('exit', () => {
+            if (this.cleanupInterval) {
+                clearInterval(this.cleanupInterval);
+            }
+        });
+    }
+
+    /**
+     * 获取所有活跃 token 信息（用于管理）
+     */
+    getAllTokens() {
+        const result = [];
+        const now = Date.now();
+        for (const [token, data] of this.tokens.entries()) {
+            result.push({
+                token: token.substring(0, 8) + '...', // 只显示前 8 位
+                createdAt: data.createdAt,
+                expiresAt: data.expiresAt,
+                lastUsedAt: data.lastUsedAt,
+                remainingMs: Math.max(0, data.expiresAt - now),
+            });
+        }
+        return result;
+    }
+}
+
+// 创建全局 Token 管理器实例
+const globalTokenManager = new TokenManager();
 
 // 登录尝试记录
 const loginAttempts = new Map();
@@ -296,4 +440,6 @@ module.exports = {
     passwordHashMiddleware,
     rateLimitMiddleware,
     SECURITY_CONFIG,
+    TokenManager,
+    globalTokenManager,
 };

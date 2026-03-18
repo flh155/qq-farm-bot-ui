@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '@/api'
+import api, { tokenManager } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import { encryptPassword } from '@/utils/crypto'
@@ -92,10 +92,19 @@ async function handleInitPassword() {
     const encryptedPassword = await encryptPassword(password.value)
     const res = await api.post('/api/init-password', { password: encryptedPassword, encrypted: true })
     if (res.data.ok) {
-      // 初始化成功后自动登录
-      if (res.data.data.token) {
-        localStorage.setItem('admin_token', res.data.data.token)
-      }
+      // 初始化成功后自动登录, 使用 tokenManager 存储完整 token 数据
+      tokenManager.setToken({
+        token: res.data.data.token,
+        expiresAt: res.data.data.expiresAt,
+        createdAt: res.data.data.createdAt || Date.now(),
+      })
+      console.log('密码初始化成功，Token 已存储')
+
+      // if (res.data.data.token) {
+      //  localStorage.setItem('admin_token', res.data.data.token)
+      // }
+
+      // 直接跳转到首页，不再去登录页面
       router.push('/')
     }
     else {

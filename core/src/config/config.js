@@ -17,6 +17,7 @@ const CONFIG = {
     friendCheckIntervalMax: 10000,// 新逻辑：好友巡查间隔最大值(ms)
     adminPort: Number(process.env.ADMIN_PORT || 3000), // 管理面板 HTTP 端口
     adminPassword: process.env.ADMIN_PASSWORD || 'admin',
+    tokenExpirationHours: 0.5,    // Token 过期时间（小时）
     device_info: {
         client_version: "1.7.0.6_20260313",
         sys_software: 'iOS 26.2.1',

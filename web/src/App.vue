@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { RouterView } from 'vue-router'
-import ToastContainer from '@/components/ToastContainer.vue'
-import { useAppStore } from '@/stores/app'
+import { RouterView, useRoute } from 'vue-router'
+import { useIdleLogout } from '@/components/useIdleLogout'
 
-const appStore = useAppStore()
+const route = useRoute()
 
-onMounted(() => {
-  appStore.fetchTheme()
-})
+// 只在非登录页面启用空闲登出
+if (route.name !== 'login' && route.name !== 'init-password') {
+  // 30 分钟无操作自动登出，提前 5 分钟警告
+  useIdleLogout({
+    timeout: 30 * 60 * 1000,
+    warningBefore: 5 * 60 * 1000,
+  })
+}
 </script>
 
 <template>
-  <div class="h-screen w-screen overflow-hidden bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-200">
-    <RouterView />
-    <ToastContainer />
-  </div>
+  <RouterView />
 </template>
 
 <style>

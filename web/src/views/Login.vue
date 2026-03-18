@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useStorage } from '@vueuse/core'
+// import { useStorage } from '@vueuse/core'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '@/api'
+import api, { tokenManager } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import { encryptPassword } from '@/utils/crypto'
@@ -11,7 +11,7 @@ const router = useRouter()
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
-const token = useStorage('admin_token', '')
+// const token = useStorage('admin_token', '')
 
 async function handleLogin() {
   loading.value = true
@@ -21,7 +21,19 @@ async function handleLogin() {
     const encryptedPassword = await encryptPassword(password.value)
     const res = await api.post('/api/login', { password: encryptedPassword, encrypted: true })
     if (res.data.ok) {
-      token.value = res.data.data.token
+      // 使用api导出的token管理器存储 token
+      tokenManager.setToken({
+        token: res.data.data.token,
+        expiresAt: res.data.data.expiresAt,
+        createdAt: res.data.data.createdAt || Date.now(),
+      })
+
+      // 显示 token 过期时间提示
+      const expiresHours = ((res.data.data.expiresAt - Date.now()) / (1000 * 60 * 60)).toFixed(1)
+      console.log(`登录成功，Token 将在 ${expiresHours} 小时后过期`)
+
+      // token.value = res.data.data.token
+
       router.push('/')
     }
     else {
