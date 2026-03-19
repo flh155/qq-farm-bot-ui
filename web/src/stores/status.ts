@@ -180,16 +180,18 @@ export const useStatusStore = defineStore('status', () => {
       const { data } = await api.get('/api/status', {
         headers: { 'x-account-id': accountId },
       })
-      if (data.ok) {
+      if (data && data.ok) {
         status.value = normalizeStatusPayload(data.data)
         error.value = ''
       }
       else {
-        error.value = data.error
+        error.value = data?.error || '获取状态失败'
+        status.value = null
       }
     }
     catch (e: any) {
-      error.value = e.message
+      error.value = e?.message || '获取状态失败'
+      status.value = null
     }
     finally {
       loading.value = false
@@ -210,13 +212,17 @@ export const useStatusStore = defineStore('status', () => {
 
     try {
       const { data } = await api.get('/api/logs', { headers, params })
-      if (data.ok) {
-        logs.value = data.data
+      if (data && data.ok) {
+        logs.value = Array.isArray(data.data) ? data.data : []
         error.value = ''
+      }
+      else {
+        logs.value = []
       }
     }
     catch (e: any) {
-      console.error(e)
+      console.error('Failed to fetch logs:', e)
+      logs.value = []
     }
   }
 
@@ -243,12 +249,16 @@ export const useStatusStore = defineStore('status', () => {
       const { data } = await api.get('/api/daily-gifts', {
         headers: { 'x-account-id': accountId },
       })
-      if (data.ok) {
+      if (data && data.ok) {
         dailyGifts.value = data.data
+      }
+      else {
+        dailyGifts.value = null
       }
     }
     catch (e) {
       console.error('获取每日奖励失败', e)
+      dailyGifts.value = null
     }
   }
 

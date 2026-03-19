@@ -2,25 +2,7 @@
  * 前端密码加密工具
  * 使用 SHA-256 对密码进行哈希处理，避免明文传输
  */
-
-/**
- * 将字符串转换为 ArrayBuffer
- */
-function str2ab(str: string): ArrayBuffer {
-  const encoder = new TextEncoder()
-  const uint8Array = encoder.encode(str)
-  return uint8Array.buffer as ArrayBuffer
-}
-
-/**
- * 将 ArrayBuffer 转换为十六进制字符串
- */
-function ab2hex(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
+import CryptoJS from 'crypto-js'
 
 /**
  * 对密码进行 SHA-256 哈希
@@ -28,9 +10,9 @@ function ab2hex(buffer: ArrayBuffer): string {
  * @returns 哈希后的十六进制字符串
  */
 export async function hashPassword(password: string): Promise<string> {
-  const data = str2ab(password)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  return ab2hex(hashBuffer)
+  // 使用 crypto-js 库，兼容性更好，支持所有现代浏览器
+  const hash = CryptoJS.SHA256(password)
+  return hash.toString(CryptoJS.enc.Hex)
 }
 
 /**

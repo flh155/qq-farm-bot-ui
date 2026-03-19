@@ -140,12 +140,19 @@ export const useFriendStore = defineStore('friend', () => {
       const res = await api.get(`/api/friend/${friendId}/lands`, {
         headers: { 'x-account-id': accountId },
       })
-      if (res.data.ok) {
+      if (res.data && res.data.ok && res.data.data) {
         const lands = res.data.data.lands || []
         const summary = res.data.data.summary || null
         friendLands.value[friendId] = lands
         syncFriendPlantSummary(friendId, lands, summary)
       }
+      else {
+        friendLands.value[friendId] = []
+      }
+    }
+    catch (error) {
+      console.error('Failed to fetch friend lands:', error)
+      friendLands.value[friendId] = []
     }
     finally {
       friendLandsLoading.value[friendId] = false

@@ -31,10 +31,20 @@ export const useFarmStore = defineStore('farm', () => {
       const { data } = await api.get('/api/lands', {
         headers: { 'x-account-id': accountId },
       })
-      if (data && data.ok) {
+      if (data && data.ok && data.data) {
         lands.value = data.data.lands || []
         summary.value = data.data.summary || {}
       }
+      else {
+        // 数据格式不正确时，设置为默认值
+        lands.value = []
+        summary.value = {}
+      }
+    }
+    catch (error) {
+      console.error('Failed to fetch lands:', error)
+      lands.value = []
+      summary.value = {}
     }
     finally {
       loading.value = false

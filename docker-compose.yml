@@ -12,3 +12,5 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/app/core/data
+      # 如果需要持久化配置，可以取消下面这行的注释
+      # - ./store.json:/app/core/data/store.json

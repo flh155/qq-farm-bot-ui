@@ -25,12 +25,16 @@ export const useBagStore = defineStore('bag', () => {
       const res = await api.get('/api/bag', {
         headers: { 'x-account-id': accountId },
       })
-      if (res.data.ok && res.data.data) {
+      if (res.data && res.data.ok && res.data.data) {
         allItems.value = Array.isArray(res.data.data.items) ? res.data.data.items : []
+      }
+      else {
+        allItems.value = []
       }
     }
     catch (e) {
-      console.error(e)
+      console.error('Failed to fetch bag:', e)
+      allItems.value = []
     }
     finally {
       loading.value = false
