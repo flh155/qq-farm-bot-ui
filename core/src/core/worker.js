@@ -560,20 +560,24 @@ async function startBot(config) {
             const bagReply = await getBag();
             const items = getBagItems(bagReply);
             let coupon = 0;
+            let goldBean = 0;
             for (const it of (items || [])) {
-                if (toNum(it && it.id) === 1002) {
+                const itemId = toNum(it && it.id);
+                if (itemId === 1002) {
                     coupon = toNum(it.count);
-                    break;
+                } else if (itemId === 1005) {
+                    goldBean = toNum(it.count);
                 }
             }
             const state = getUserState();
             state.coupon = Math.max(0, coupon);
+            state.goldBean = Math.max(0, goldBean);
         } catch {
             // ignore
         }
-        // 登录成功后，以当前金币/经验/点券作为统计基线，并清空会话增量
+        // 登录成功后，以当前金币/经验/点券/金豆子作为统计基线，并清空会话增量
         const latest = getUserState();
-        setInitialValues(Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0));
+        setInitialValues(Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0), Number(latest.goldBean || 0));
         resetSessionGains();
 
         // 登录成功后启动各模块

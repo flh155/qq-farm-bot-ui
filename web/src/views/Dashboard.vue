@@ -499,7 +499,7 @@ useIntervalFn(updateCountdowns, 1000)
 
       <!-- Assets & Status -->
       <div class="flex flex-col justify-between rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-        <div class="flex justify-between">
+        <div class="grid grid-cols-3 gap-3">
           <div>
             <div class="flex items-center gap-1.5 text-xs text-gray-500">
               <div class="i-fas-coins text-yellow-500" />
@@ -516,8 +516,8 @@ useIntervalFn(updateCountdowns, 1000)
               {{ (status?.sessionGoldGained || 0) > 0 ? '+' : '' }}{{ status?.sessionGoldGained || 0 }}
             </div>
           </div>
-          <div class="text-right">
-            <div class="flex items-center justify-end gap-1.5 text-xs text-gray-500">
+          <div>
+            <div class="flex items-center gap-1.5 text-xs text-gray-500">
               <div class="i-fas-ticket-alt text-emerald-400" />
               点券
             </div>
@@ -530,6 +530,22 @@ useIntervalFn(updateCountdowns, 1000)
               :class="(status?.sessionCouponGained || 0) > 0 ? 'text-green-500' : 'text-red-500'"
             >
               {{ (status?.sessionCouponGained || 0) > 0 ? '+' : '' }}{{ status?.sessionCouponGained || 0 }}
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center gap-1.5 text-xs text-gray-500">
+              <div class="i-fas-seedling text-orange-500" />
+              金豆子
+            </div>
+            <div class="text-2xl text-orange-600 font-bold dark:text-orange-500">
+              {{ status?.status?.goldBean || 0 }}
+            </div>
+            <div
+              v-if="(status?.sessionGoldBeanGained || 0) !== 0"
+              class="text-[10px]"
+              :class="(status?.sessionGoldBeanGained || 0) > 0 ? 'text-green-500' : 'text-red-500'"
+            >
+              {{ (status?.sessionGoldBeanGained || 0) > 0 ? '+' : '' }}{{ status?.sessionGoldBeanGained || 0 }}
             </div>
           </div>
         </div>

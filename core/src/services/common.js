@@ -86,6 +86,7 @@ function getDetailedRewardSummary(items) {
         gold: 0,
         exp: 0,
         coupon: 0,
+        goldBean: 0,
         items: [],
     };
 
@@ -101,6 +102,8 @@ function getDetailedRewardSummary(items) {
             result.exp += count;
         } else if (id === 1002) {
             result.coupon += count;
+        } else if (id === 1005) {
+            result.goldBean += count;
         } else {
             result.items.push({ id, count });
         }

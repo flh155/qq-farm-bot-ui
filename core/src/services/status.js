@@ -16,6 +16,8 @@ const statusData = {
     level: 0,
     gold: 0,
     exp: 0,
+    coupon: 0,
+    goldBean: 0,
 };
 
 // ============ 状态栏高度 ============
@@ -163,6 +165,8 @@ function updateStatusFromLogin(basic) {
         level: (basic.level ?? statusData.level),
         gold: (basic.gold ?? statusData.gold),
         exp: (basic.exp ?? statusData.exp),
+        coupon: (basic.coupon ?? statusData.coupon),
+        goldBean: (basic.goldBean ?? statusData.goldBean),
     });
 }
 
