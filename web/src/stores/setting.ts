@@ -40,12 +40,13 @@ export interface AutomationConfig {
 }
 
 export interface IntervalsConfig {
-  farm?: number
-  friend?: number
-  farmMin?: number
-  farmMax?: number
-  friendMin?: number
-  friendMax?: number
+  farm: number
+  friend: number
+  farmMin: number
+  farmMax: number
+  friendMin: number
+  friendMax: number
+  planting: number
 }
 
 export interface FriendBlockLevelConfig {
@@ -121,7 +122,15 @@ export const useSettingStore = defineStore('setting', () => {
     plantingStrategy: 'preferred',
     preferredSeedId: 0,
     bagSeedPriority: [],
-    intervals: {},
+    intervals: {
+      farm: 2,
+      friend: 10,
+      farmMin: 2,
+      farmMax: 2,
+      friendMin: 10,
+      friendMax: 10,
+      planting: 0,
+    },
     friendBlockLevel: { enabled: true, Level: 1 },
     friendQuietHours: { enabled: false, start: '23:00', end: '07:00' },
     automation: {},
@@ -168,7 +177,16 @@ export const useSettingStore = defineStore('setting', () => {
         settings.value.plantingStrategy = d.strategy || 'preferred'
         settings.value.preferredSeedId = d.preferredSeed || 0
         settings.value.bagSeedPriority = Array.isArray(d.bagSeedPriority) ? d.bagSeedPriority : []
-        settings.value.intervals = d.intervals || {}
+        settings.value.intervals = {
+          farm: 2,
+          friend: 10,
+          farmMin: 2,
+          farmMax: 2,
+          friendMin: 10,
+          friendMax: 10,
+          planting: 0,
+          ...(d.intervals || {}),
+        }
         settings.value.friendBlockLevel = { enabled: true, Level: 1, ...(d.friendBlockLevel || {}) }
         settings.value.friendQuietHours = d.friendQuietHours || { enabled: false, start: '23:00', end: '07:00' }
         settings.value.automation = d.automation || {}

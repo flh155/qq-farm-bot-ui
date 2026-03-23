@@ -94,6 +94,7 @@ const DEFAULT_ACCOUNT_CONFIG = {
         farmMax: 2,
         friendMin: 10,
         friendMax: 10,
+        planting: 0,
     },
     friendBlockLevel: {
         enabled: true,
@@ -837,10 +838,11 @@ function normalizeIntervals(intervals) {
     const toSec = (v, d) => {
         const n = Number.parseInt(v, 10);
         const base = Number.isFinite(n) ? n : d;
-        return Math.max(1, Math.min(INTERVAL_MAX_SEC, base));
+        return Math.max(0, Math.min(INTERVAL_MAX_SEC, base));
     };
     const farm = toSec(src.farm, 2);
     const friend = toSec(src.friend, 10);
+    const planting = toSec(src.planting, 0);
 
     let farmMin = toSec(src.farmMin, farm);
     let farmMax = toSec(src.farmMax, farm);
@@ -858,6 +860,7 @@ function normalizeIntervals(intervals) {
         farmMax,
         friendMin,
         friendMax,
+        planting,
     };
 }
 

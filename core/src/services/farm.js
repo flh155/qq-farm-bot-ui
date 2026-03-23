@@ -644,7 +644,7 @@ function getPlantSizeBySeedId(seedId) {
 }
 
 /**
- * 种植 - 游戏中拖动种植间隔很短，这里用 50ms
+ * 种植 - 游戏中拖动种植间隔很短，默认为 50ms
  */
 async function plantSeeds(seedId, landIds, options = {}) {
     let successCount = 0;
@@ -652,6 +652,9 @@ async function plantSeeds(seedId, landIds, options = {}) {
     const occupiedLandIds = new Set();
     const maxPlantCount = Math.max(0, toNum(options.maxPlantCount) || 0) || Number.POSITIVE_INFINITY;
     const pendingLandIds = new Set((Array.isArray(landIds) ? landIds : []).map(id => toNum(id)).filter(Boolean));
+    
+    // 获取种植间隔配置（毫秒），默认为 50ms
+    const plantingIntervalMs = Math.max(0, toNum(options.plantingInterval) || 50);
 
     for (const rawLandId of landIds) {
         const landId = toNum(rawLandId);
@@ -677,9 +680,9 @@ async function plantSeeds(seedId, landIds, options = {}) {
                 pendingLandIds.delete(occupiedId);
             }
         } catch (e) {
-            logWarn('种植', `土地#${landId} 失败: ${e.message}`);
+            logWarn('种植', `土地#${landId} 失败：${e.message}`);
         }
-        if (landIds.length > 1) await sleep(50);  // 50ms 间隔
+        if (landIds.length > 1 && plantingIntervalMs > 0) await sleep(plantingIntervalMs);
     }
     return {
         planted: successCount,
@@ -1004,6 +1007,10 @@ async function getLandsDetail() {
 async function autoPlantEmptyLands(deadLandIds, emptyLandIds) {
     const landsToPlant = [...emptyLandIds];
     const state = getUserState();
+    
+    // 获取种植间隔配置
+    const intervals = getIntervals();
+    const plantingIntervalMs = (intervals.planting || 0) * 1000;
 
     // 1. 铲除枯死/收获残留植物（一键操作）
     if (deadLandIds.length > 0) {
@@ -1014,7 +1021,7 @@ async function autoPlantEmptyLands(deadLandIds, emptyLandIds) {
             });
             landsToPlant.push(...deadLandIds);
         } catch (e) {
-            logWarn('铲除', `批量铲除失败: ${e.message}`, {
+            logWarn('铲除', `批量铲除失败：${e.message}`, {
                 module: 'farm', event: 'remove_plant', result: 'error'
             });
             landsToPlant.push(...deadLandIds);
@@ -1024,36 +1031,36 @@ async function autoPlantEmptyLands(deadLandIds, emptyLandIds) {
     if (landsToPlant.length === 0) return;
 
     const strategy = getPlantingStrategy();
-    log('种植', `当前种植策略: ${strategy}`, {
+    log('种植', `当前种植策略：${strategy}`, {
         module: 'farm', event: 'plant_strategy', strategy
     });
 
     // 2. 背包种子优先模式
     if (strategy === 'bag_priority') {
-        const planted = await plantFromBagSeeds(landsToPlant);
+        const planted = await plantFromBagSeeds(landsToPlant, plantingIntervalMs);
         if (planted) return;
         // 背包种子用完或空地不足，继续检查是否需要切换策略
     }
 
     // 3. 非背包优先模式，或背包种子已用完，从商店购买
-    await plantFromShop(landsToPlant, state);
+    await plantFromShop(landsToPlant, state, plantingIntervalMs);
 }
 
 /**
  * 从背包种子种植
  * @returns {boolean} true=已种植或等待中，false=需要从商店购买
  */
-async function plantFromBagSeeds(landsToPlant) {
+async function plantFromBagSeeds(landsToPlant, plantingIntervalMs = 50) {
     const { getBagSeeds } = require('./warehouse');
 
     let bagSeeds;
     try {
         bagSeeds = await getBagSeeds();
-        log('背包', `获取到 ${bagSeeds.length} 种种子: ${bagSeeds.map(s => `${s.name}x${s.count}`).join(', ') || '无'}`, {
+        log('背包', `获取到 ${bagSeeds.length} 种种子：${bagSeeds.map(s => `${s.name}x${s.count}`).join(', ') || '无'}`, {
             module: 'farm', event: 'bag_seeds_fetch', count: bagSeeds.length
         });
     } catch (e) {
-        logWarn('背包', `获取背包种子失败: ${e.message}`);
+        logWarn('背包', `获取背包种子失败：${e.message}`);
         return false;
     }
 
@@ -1067,7 +1074,7 @@ async function plantFromBagSeeds(landsToPlant) {
 
     // 按用户设置的优先级排序
     const priority = getBagSeedPriority();
-    log('背包', `用户优先级设置: ${priority.length > 0 ? priority.join(',') : '无(按等级排序)'}`, {
+    log('背包', `用户优先级设置：${priority.length > 0 ? priority.join(',') : '无 (按等级排序)'}`, {
         module: 'farm', event: 'bag_priority', priority
     });
     const sortedSeeds = sortBagSeedsByPriority(bagSeeds, priority);
@@ -1122,12 +1129,12 @@ async function plantFromBagSeeds(landsToPlant) {
         const { planted, plantedLandIds } = await plantSeeds(
             availableSeed.seedId,
             landsToUse,
-            { maxPlantCount: needCount }
+            { maxPlantCount: needCount, plantingInterval: plantingIntervalMs }
         );
         totalPlanted = planted;
         plantedLands = plantedLandIds;
     } catch (e) {
-        logWarn('种植', `背包种子种植失败: ${e.message}`);
+        logWarn('种植', `背包种子种植失败：${e.message}`);
         return false;
     }
 
@@ -1190,12 +1197,12 @@ function sortBagSeedsByPriority(bagSeeds, priority) {
 /**
  * 从商店购买种子并种植
  */
-async function plantFromShop(landsToPlant, state) {
+async function plantFromShop(landsToPlant, state, plantingIntervalMs = 50) {
     let bestSeed;
     try {
         bestSeed = await findBestSeed();
     } catch (e) {
-        logWarn('商店', `查询失败: ${e.message}`);
+        logWarn('商店', `查询失败：${e.message}`);
         return;
     }
     if (!bestSeed) return;
@@ -1205,7 +1212,7 @@ async function plantFromShop(landsToPlant, state) {
     const growTimeStr = growTime > 0 ? ` 生长${formatGrowTime(growTime)}` : '';
     const plantSize = getPlantSizeBySeedId(bestSeed.seedId);
     const landFootprint = plantSize * plantSize;
-    log('商店', `最佳种子: ${seedName} (${bestSeed.seedId}) 价格=${bestSeed.price}金币${growTimeStr}`, {
+    log('商店', `最佳种子：${seedName} (${bestSeed.seedId}) 价格=${bestSeed.price}金币${growTimeStr}`, {
         module: 'warehouse', event: 'seed_pick', seedId: bestSeed.seedId, price: bestSeed.price
     });
 
@@ -1226,7 +1233,7 @@ async function plantFromShop(landsToPlant, state) {
     }
     const totalCost = bestSeed.price * needCount;
     if (totalCost > state.gold) {
-        logWarn('商店', `金币不足! 需要 ${totalCost} 金币, 当前 ${state.gold} 金币`, {
+        logWarn('商店', `金币不足！需要 ${totalCost} 金币，当前 ${state.gold} 金币`, {
             module: 'farm', event: 'seed_buy_skip', result: 'insufficient_gold', need: totalCost, current: state.gold
         });
         const canBuy = Math.floor(state.gold / bestSeed.price);
@@ -1264,7 +1271,7 @@ async function plantFromShop(landsToPlant, state) {
 
     let plantedLands = [];
     try {
-        const { planted, plantedLandIds, occupiedLandIds } = await plantSeeds(actualSeedId, landsToPlant, { maxPlantCount: needCount });
+        const { planted, plantedLandIds, occupiedLandIds } = await plantSeeds(actualSeedId, landsToPlant, { maxPlantCount: needCount, plantingInterval: plantingIntervalMs });
         const occupiedCount = occupiedLandIds.length > 0 ? occupiedLandIds.length : planted;
         log('种植', plantSize > 1
             ? `已种植 ${planted} 组 ${plantSize}x${plantSize} 作物，占用 ${occupiedCount} 块地 (${occupiedLandIds.join(',')})`

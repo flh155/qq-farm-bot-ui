@@ -119,7 +119,7 @@ const localSettings = ref({
   plantingStrategy: 'preferred',
   preferredSeedId: 0,
   bagSeedPriority: [] as number[],
-  intervals: { farmMin: 2, farmMax: 2, friendMin: 10, friendMax: 10 },
+  intervals: { farmMin: 2, farmMax: 2, friendMin: 10, friendMax: 10, planting: 0 },
   friendBlockLevel: { enabled: true, Level: 1 },
   friendQuietHours: { enabled: false, start: '23:00', end: '07:00' },
   automation: {
@@ -988,6 +988,13 @@ async function saveAccountSettings() {
   if (localSettings.value.automation.fertilizer_buy_mode === 'unlimited' && localSettings.value.automation.fertilizer_buy_type === 'both')
     localSettings.value.automation.fertilizer_buy_type = 'organic'
 
+  // Normalize intervals
+  localSettings.value.intervals.farmMin = Math.max(1, Math.min(3600, Number(localSettings.value.intervals.farmMin) || 2))
+  localSettings.value.intervals.farmMax = Math.max(1, Math.min(3600, Number(localSettings.value.intervals.farmMax) || 2))
+  localSettings.value.intervals.friendMin = Math.max(1, Math.min(3600, Number(localSettings.value.intervals.friendMin) || 10))
+  localSettings.value.intervals.friendMax = Math.max(1, Math.min(3600, Number(localSettings.value.intervals.friendMax) || 10))
+  localSettings.value.intervals.planting = Math.max(0, Math.min(3600, Number(localSettings.value.intervals.planting) || 0))
+
   saving.value = true
   try {
     const res = await settingStore.saveSettings(currentAccountId.value, localSettings.value)
@@ -995,7 +1002,7 @@ async function saveAccountSettings() {
       showAlert('账号设置已保存')
     }
     else {
-      showAlert(`保存失败: ${res.error}`, 'danger')
+      showAlert(`保存失败：${res.error}`, 'danger')
     }
   }
   finally {
@@ -1355,6 +1362,21 @@ async function handleTestOffline() {
               min="1"
               max="86400"
             />
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <BaseInput
+              v-model.number="localSettings.intervals.planting"
+              label="种植间隔 (秒，0 为禁用)"
+              type="number"
+              min="0"
+              max="3600"
+              step="0.1"
+            />
+          </div>
+          <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p>* 设置不同地块之间种植的延迟时间，0 表示使用默认快速种植（50ms）</p>
+            <p>* 建议设置为 0.1-1 秒以模拟人工操作，降低被检测风险</p>
           </div>
 
           <div class="mt-4 flex flex-wrap items-center gap-4 border-t pt-3 dark:border-gray-700">
