@@ -13,11 +13,14 @@ const props = defineProps<{
 
 const emit = defineEmits(['close', 'saved'])
 
-const activeTab = ref('manual') // qr, manual - 默认改为手动填码
+const activeTab = ref('manual')
 const loading = ref(false)
 const qrData = ref<{ image?: string, code: string, qrcode?: string, url?: string } | null>(null)
 const qrStatus = ref('')
 const errorMessage = ref('')
+const showQrWarning = ref(false)
+const customApiDomain = ref('q.qq.com')
+const useCustomApi = ref(false)
 
 const form = reactive({
   name: '',
@@ -31,6 +34,8 @@ const manualNameHint = computed(() => form.platform === 'qq'
 const manualNamePlaceholder = computed(() => form.platform === 'qq'
   ? '留空自动同步游戏名称'
   : '留空默认账号名')
+
+let qrCheckTimer: number | undefined
 
 async function addAccount(data: any) {
   loading.value = true
@@ -66,30 +71,25 @@ async function submitManual() {
   }
 
   let code = form.code.trim()
-  // Try to extract code from URL if present
   const match = code.match(/[?&]code=([^&]+)/i)
   if (match && match[1]) {
     code = decodeURIComponent(match[1])
-    form.code = code // Update UI
+    form.code = code
   }
 
-  // 检查是否仅修改了备注
   let payload = {}
   if (props.editData) {
-    // 编辑模式：检查是否只修改了备注
     const onlyNameChanged = form.name !== props.editData.name
       && form.code === (props.editData.code || '')
       && form.platform === (props.editData.platform || 'qq')
 
     if (onlyNameChanged) {
-      // 仅修改了备注，只发送 id 和 name
       payload = {
         id: props.editData.id,
         name: form.name,
       }
     }
     else {
-      // 修改了其他字段，发送完整 payload
       payload = {
         id: props.editData.id,
         name: form.name,
@@ -100,7 +100,6 @@ async function submitManual() {
     }
   }
   else {
-    // 新增模式，发送完整 payload
     payload = {
       name: form.name,
       code,
@@ -112,22 +111,131 @@ async function submitManual() {
   await addAccount(payload)
 }
 
+async function createQRCode() {
+  loading.value = true
+  errorMessage.value = ''
+  qrStatus.value = '正在加载二维码...'
+  try {
+    const payload: any = {}
+    if (useCustomApi.value && customApiDomain.value.trim()) {
+      payload.apiDomain = customApiDomain.value.trim()
+    }
+    
+    const res = await api.post('/api/qr/create', payload)
+    if (res.data.ok) {
+      qrData.value = res.data.data
+      qrStatus.value = ''
+      startQrCheck()
+    }
+    else {
+      errorMessage.value = `获取二维码失败：${res.data.error}`
+      qrStatus.value = '获取失败'
+    }
+  }
+  catch (e: any) {
+    errorMessage.value = `获取二维码失败：${e.response?.data?.error || e.message}`
+    qrStatus.value = '获取失败'
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+function startQrCheck() {
+  if (qrCheckTimer) {
+    clearInterval(qrCheckTimer)
+  }
+  
+  qrCheckTimer = window.setInterval(async () => {
+    if (!qrData.value?.code) return
+    
+    try {
+      const checkPayload: any = { code: qrData.value.code }
+      if (useCustomApi.value && customApiDomain.value.trim()) {
+        checkPayload.apiDomain = customApiDomain.value.trim()
+      }
+      
+      const res = await api.post('/api/qr/check', checkPayload)
+      if (res.data.ok) {
+        const status = res.data.data.status
+        if (status === 'OK') {
+          stopQrCheck()
+          qrStatus.value = '扫码成功！'
+          form.code = res.data.data.code
+          if (res.data.data.nickname) {
+            form.name = res.data.data.nickname
+          }
+          setTimeout(() => {
+            submitManual()
+          }, 500)
+        }
+        else if (status === 'Used') {
+          stopQrCheck()
+          qrStatus.value = '二维码已过期'
+          qrData.value = null
+        }
+        else if (status === 'Wait') {
+          qrStatus.value = '等待扫码...'
+        }
+        else {
+          qrStatus.value = res.data.data.error || '状态未知'
+        }
+      }
+    }
+    catch (e: any) {
+      console.error('检查二维码状态失败:', e)
+    }
+  }, 2000)
+}
+
+function stopQrCheck() {
+  if (qrCheckTimer) {
+    clearInterval(qrCheckTimer)
+    qrCheckTimer = undefined
+  }
+}
+
+function handleQrClick() {
+  showQrWarning.value = true
+}
+
+function confirmQrLogin() {
+  showQrWarning.value = false
+  activeTab.value = 'qr'
+  createQRCode()
+}
+
+function cancelQrLogin() {
+  showQrWarning.value = false
+}
+
+function openQrUrl() {
+  if (qrData.value?.url) {
+    window.open(qrData.value.url, '_blank')
+  }
+}
+
+function toggleCustomApi() {
+  useCustomApi.value = !useCustomApi.value
+}
+
 function close() {
   emit('close')
+  stopQrCheck()
+  qrData.value = null
+  qrStatus.value = ''
 }
 
 watch(() => props.show, (newVal) => {
   if (newVal) {
     errorMessage.value = ''
     if (props.editData) {
-      // Edit mode: Default to manual fill
       activeTab.value = 'manual'
       form.name = props.editData.name
       form.code = props.editData.code || ''
       form.platform = props.editData.platform || 'qq'
     }
     else {
-      // Add mode: Default to manual fill
       activeTab.value = 'manual'
       form.name = ''
       form.code = ''
@@ -135,9 +243,7 @@ watch(() => props.show, (newVal) => {
     }
   }
   else {
-    // Reset when closed
-    qrData.value = null
-    qrStatus.value = ''
+    close()
   }
 })
 </script>
@@ -155,30 +261,18 @@ watch(() => props.show, (newVal) => {
       </div>
 
       <div class="p-4 text-gray-900 dark:text-white">
-        <!-- 停用提示 -->
-        <div class="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700">
-          <div class="flex items-start gap-2">
-            <div class="i-carbon-warning text-lg flex-shrink-0 mt-0.5" />
-            <div>
-              <p class="font-medium mb-1">扫码功能暂时停用</p>
-              <p class="text-xs opacity-80">请使用手动填码方式添加账号。</p>
-            </div>
-          </div>
-        </div>
-
         <div v-if="errorMessage" class="mb-4 rounded bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
           {{ errorMessage }}
         </div>
+
         <!-- Tabs -->
         <div class="mb-4 flex border-b border-gray-200 dark:border-gray-700">
           <button
-            class="flex-1 py-2 text-center font-medium opacity-50 cursor-not-allowed"
-            disabled
+            class="flex-1 py-2 text-center font-medium"
+            :class="activeTab === 'qr' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-gray-400'"
+            @click="handleQrClick"
           >
-            <span class="text-gray-500 dark:text-gray-400">
-              {{ editData ? '扫码更新' : '扫码登录' }}
-              <span class="ml-1 text-xs">(停用)</span>
-            </span>
+            {{ editData ? '扫码更新' : '扫码登录' }}
           </button>
           <button
             class="flex-1 py-2 text-center font-medium"
@@ -191,34 +285,71 @@ watch(() => props.show, (newVal) => {
 
         <!-- QR Tab -->
         <div v-if="activeTab === 'qr'" class="flex flex-col items-center justify-center py-4 space-y-4">
+          <div class="w-full">
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                API 配置
+              </label>
+              <button
+                class="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                @click="toggleCustomApi"
+              >
+                {{ useCustomApi ? '使用默认配置' : '自定义 API' }}
+              </button>
+            </div>
+            
+            <div v-if="useCustomApi" class="space-y-2">
+              <BaseInput
+                v-model="customApiDomain"
+                type="text"
+                placeholder="q.qq.com"
+                label="二维码 API 域名"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                输入自定义的二维码 API 域名，例如：q.qq.com 或其他可用域名
+              </p>
+            </div>
+            <div v-else class="rounded-lg bg-blue-50 p-3 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
+              使用默认 API 配置 (q.qq.com)
+            </div>
+          </div>
+
           <div class="w-full text-center">
             <p class="text-sm text-gray-500 dark:text-gray-400">
               扫码默认使用 QQ 昵称
             </p>
           </div>
 
-          <div class="border rounded bg-white p-2 opacity-50 dark:bg-gray-700">
+          <div v-if="qrData && qrData.image" class="border rounded bg-white p-2 dark:bg-gray-700">
+            <img :src="qrData.image" alt="QR Code" class="h-48 w-48" />
+          </div>
+          <div v-else class="border rounded bg-gray-100 p-2 dark:bg-gray-700">
             <div class="h-48 w-48 flex items-center justify-center text-gray-400 dark:text-gray-500">
-              <div class="i-carbon-warning text-4xl" />
+              <div v-if="loading" class="i-carbon-loading text-4xl animate-spin" />
+              <div v-else-if="qrStatus === '获取失败'" class="i-carbon-warning text-4xl" />
+              <div v-else class="i-carbon-qr-code text-4xl" />
             </div>
           </div>
-          <p class="text-sm text-amber-600 dark:text-amber-400 font-medium">
-            此功能已停用
+
+          <p v-if="qrStatus" class="text-sm text-gray-600 dark:text-gray-400 font-medium">
+            {{ qrStatus }}
           </p>
+
           <div class="flex gap-2">
             <BaseButton 
-              variant="text" 
+              variant="outline" 
               size="sm"
-              disabled
-              class="opacity-50 cursor-not-allowed"
+              :loading="loading"
+              @click="createQRCode"
             >
               刷新二维码
             </BaseButton>
             <BaseButton
-              variant="text"
+              v-if="qrData && qrData.url"
+              variant="primary"
               size="sm"
-              class="text-blue-600 md:hidden opacity-50 cursor-not-allowed dark:text-blue-400"
-              disabled
+              class="md:hidden"
+              @click="openQrUrl"
             >
               跳转 QQ 登录
             </BaseButton>
@@ -270,6 +401,40 @@ watch(() => props.show, (newVal) => {
             </BaseButton>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Warning Modal -->
+  <div v-if="showQrWarning" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
+    <div class="max-w-sm w-full mx-4 rounded-lg bg-white p-6 shadow-2xl dark:bg-gray-800">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="i-carbon-warning text-2xl text-amber-500 flex-shrink-0" />
+        <div>
+          <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            扫码功能风险提示
+          </h4>
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            扫码默认API目前暂时无法使用，但通过反馈得知扫车载wx二维码可以拿到code，因此临时开放该功能供部分有私有api的用户使用，请填写私有api或是直接到后端修改默认api以实现扫码登录获取code。(备注：相关技术请参考: https://www.52pojie.cn/thread-2071262-1-1.html)
+          </p>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mt-2">
+            点击确认后仍可继续使用扫码功能。
+          </p>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-4">
+        <BaseButton
+          variant="outline"
+          @click="cancelQrLogin"
+        >
+          取消
+        </BaseButton>
+        <BaseButton
+          variant="primary"
+          @click="confirmQrLogin"
+        >
+          确认使用
+        </BaseButton>
       </div>
     </div>
   </div>

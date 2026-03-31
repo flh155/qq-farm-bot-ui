@@ -1162,8 +1162,10 @@ function startAdminServer(dataProvider) {
     // 这些接口不需要 authRequired 也能调用（用于登录流程）
     app.post('/api/qr/create', async (req, res) => {
         try {
+            const clientApiDomain = req.body && req.body.apiDomain;
             const qrLogin = store.getQrLoginConfig ? store.getQrLoginConfig() : { apiDomain: 'q.qq.com' };
-            const result = await MiniProgramLoginSession.requestLoginCode({ apiDomain: qrLogin.apiDomain });
+            const apiDomain = clientApiDomain || qrLogin.apiDomain || 'q.qq.com';
+            const result = await MiniProgramLoginSession.requestLoginCode({ apiDomain });
             res.json({ ok: true, data: result });
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
@@ -1171,22 +1173,22 @@ function startAdminServer(dataProvider) {
     });
 
     app.post('/api/qr/check', async (req, res) => {
-        const { code } = req.body || {};
+        const { code, apiDomain: clientApiDomain } = req.body || {};
         if (!code) {
             return res.status(400).json({ ok: false, error: 'Missing code' });
         }
 
         try {
             const qrLogin = store.getQrLoginConfig ? store.getQrLoginConfig() : { apiDomain: 'q.qq.com' };
-            const result = await MiniProgramLoginSession.queryStatus(code, { apiDomain: qrLogin.apiDomain });
-
+            const apiDomain = clientApiDomain || qrLogin.apiDomain || 'q.qq.com';
+            const result = await MiniProgramLoginSession.queryStatus(code, { apiDomain });
             if (result.status === 'OK') {
                 const ticket = result.ticket;
                 const uin = result.uin || '';
-                const nickname = result.nickname || ''; // 获取昵称
-                const appid = '1112386029'; // Farm appid
+                const nickname = result.nickname || '';
+                const appid = '1112386029';
 
-                const authCode = await MiniProgramLoginSession.getAuthCode(ticket, appid, { apiDomain: qrLogin.apiDomain });
+                const authCode = await MiniProgramLoginSession.getAuthCode(ticket, appid, { apiDomain });
 
                 let avatar = '';
                 if (uin) {
